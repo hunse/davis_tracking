@@ -1,8 +1,11 @@
+import os
+
 import matplotlib.pyplot as plt
 import numpy as np
 import nengo
 import nengo_dl
 import nengo_loihi
+from nengo_loihi.inputs import DVSFileChipNode
 import tensorflow as tf
 
 import davis_tracking
@@ -55,23 +58,27 @@ dimensions = input_shape[0]*input_shape[1]*input_shape[2]
 max_rate = 100
 amp = 1 / max_rate
 
+datafile = os.path.expanduser('~/data/davis/davis240c-5sec-handmove.aedat')
+
 with nengo.Network() as net:
     net.config[nengo.Ensemble].max_rates = nengo.dists.Choice([max_rate])
     net.config[nengo.Ensemble].intercepts = nengo.dists.Choice([0])
     net.config[nengo.Connection].synapse = None
 
     # inp = nengo.Node([0]*dimensions)
-    inp = DVSFileChipNode(pool=(5, 5))
+    inp = DVSFileChipNode(filename=datafile, pool=(10, 10))
 
     convnet = davis_tracking.ConvNet(nengo.Network(label='convnet'))
+    convnet.input = inp
 
     # config after convnet to override default values
-    net.config[nengo.Ensemble].neuron_type = nengo.SpikingRectifiedLinear(amplitude=amp)
+    convnet.net.config[nengo.Ensemble].neuron_type = (
+        nengo.SpikingRectifiedLinear(amplitude=amp))
 
     convnet.make_input_layer(input_shape,
                              spatial_size=(12,12),
                              spatial_stride=(6,6))
-    nengo.Connection(inp, convnet.input)
+    # nengo.Connection(inp, convnet.input)
 
     convnet.make_middle_layer(n_features=10, n_parallel=6, n_local=1,
                               kernel_stride=(1,1), kernel_size=(3, 3))

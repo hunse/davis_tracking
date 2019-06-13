@@ -6,13 +6,14 @@ import numpy as np
 class ConvNet(object):
     def __init__(self, net, max_rate=100):
         amp = 1 / max_rate
-        net.config[nengo.Ensemble].neuron_type = nengo.SpikingRectifiedLinear(amplitude=amp)
+        net.config[nengo.Ensemble].neuron_type = nengo.RectifiedLinear(amplitude=amp)
         net.config[nengo.Ensemble].max_rates = nengo.dists.Choice([max_rate])
         net.config[nengo.Ensemble].intercepts = nengo.dists.Choice([0])
         net.config[nengo.Connection].synapse = None
         self.net = net
         self.layers = []
         self.output_shapes = []
+        self.input = None
 
     def make_input_layer(self, source_shape,
                          spatial_stride=(1, 1),
@@ -21,7 +22,9 @@ class ConvNet(object):
             spatial_size = (source_shape[2], source_shape[1])
 
         with self.net:
-            self.input = nengo.Node(None,
+            if self.input is None:
+                self.input = nengo.Node(
+                    None,
                     size_in=source_shape[0]*source_shape[1]*source_shape[2],
                     label='input')
 
@@ -35,16 +38,19 @@ class ConvNet(object):
                 row = []
                 i = 0
                 while i + w <= source_shape[2]:
-                    sp = nengo.Node(None, size_in=w*h*source_shape[0],
-                                    label='[%d:%d,%d:%d]' % (j,j+h,i,i+w))
-                    row.append([sp])
+                    # sp = nengo.Node(None, size_in=w*h*source_shape[0],
+                    #                 label='[%d:%d,%d:%d]' % (j,j+h,i,i+w))
+                    # row.append([sp])
 
                     indices = np.array((items[j:j+h][:,i:i+w]).flat)
                     all_indices = []
                     for q in range(source_shape[0]):
                         all_indices.extend(indices+q*source_shape[1]*source_shape[2])
 
-                    nengo.Connection(self.input[all_indices], sp)
+                    # nengo.Connection(self.input[all_indices], sp)
+
+                    row.append([self.input[all_indices]])
+
                     i += spatial_stride[0]
                 j += spatial_stride[1]
                 layer.append(row)
