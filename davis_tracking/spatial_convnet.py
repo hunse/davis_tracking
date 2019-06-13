@@ -6,17 +6,17 @@ import numpy as np
 class ConvNet(object):
     def __init__(self, net, max_rate=100):
         amp = 1 / max_rate
-        net.config[nengo.Ensemble].neuron_type = nengo.RectifiedLinear(amplitude=amp)
+        net.config[nengo.Ensemble].neuron_type = nengo.SpikingRectifiedLinear(amplitude=amp)
         net.config[nengo.Ensemble].max_rates = nengo.dists.Choice([max_rate])
         net.config[nengo.Ensemble].intercepts = nengo.dists.Choice([0])
-        net.config[nengo.Connection].synapse = None    
+        net.config[nengo.Connection].synapse = None
         self.net = net
         self.layers = []
         self.output_shapes = []
-        
+
     def make_input_layer(self, source_shape,
                          spatial_stride=(1, 1),
-                         spatial_size=None):        
+                         spatial_size=None):
         if spatial_size is None:
             spatial_size = (source_shape[2], source_shape[1])
 
@@ -37,13 +37,13 @@ class ConvNet(object):
                 while i + w <= source_shape[2]:
                     sp = nengo.Node(None, size_in=w*h*source_shape[0],
                                     label='[%d:%d,%d:%d]' % (j,j+h,i,i+w))
-                    row.append([sp])            
+                    row.append([sp])
 
                     indices = np.array((items[j:j+h][:,i:i+w]).flat)
                     all_indices = []
                     for q in range(source_shape[0]):
                         all_indices.extend(indices+q*source_shape[1]*source_shape[2])
-                    
+
                     nengo.Connection(self.input[all_indices], sp)
                     i += spatial_stride[0]
                 j += spatial_stride[1]
@@ -52,7 +52,7 @@ class ConvNet(object):
             self.output_shapes.append((source_shape[0],
                                        spatial_size[0],
                                        spatial_size[1]))
-            
+
     def make_middle_layer(self, n_features, n_parallel,
                           n_local, kernel_stride, kernel_size):
         with self.net:
@@ -63,7 +63,7 @@ class ConvNet(object):
                 row = []
                 for prev_col in prev_row:
                     col = []
-                    
+
                     index = 0
                     for k in range(n_parallel):
                         conv = nengo.Convolution(n_features, prev_output_shape,
@@ -85,7 +85,7 @@ class ConvNet(object):
                 layer.append(row)
             self.layers.append(layer)
             self.output_shapes.append(conv.output_shape)
-            
+
     def make_output_layer(self, dimensions):
         with self.net:
             self.output = nengo.Node(None, dimensions, label='output')
