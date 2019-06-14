@@ -58,7 +58,8 @@ dimensions = input_shape[0]*input_shape[1]*input_shape[2]
 max_rate = 100
 amp = 1 / max_rate
 
-datafile = os.path.expanduser('~/data/davis/davis240c-5sec-handmove.aedat')
+# datafile = os.path.expanduser('~/data/davis/davis240c-5sec-handmove.aedat')
+datafile = 'dataset/retinaTest95.events'
 
 with nengo.Network() as net:
     net.config[nengo.Ensemble].max_rates = nengo.dists.Choice([max_rate])
