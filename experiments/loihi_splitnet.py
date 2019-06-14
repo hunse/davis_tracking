@@ -11,22 +11,15 @@ import tensorflow as tf
 import davis_tracking
 
 
-# times, images, targets = davis_tracking.load_data(
-#     '../dataset/retinaTest95.events',
-#     dt=0.01,                  # time step between images
-#     decay_time=0.01,         # low pass filter time constant
-#     separate_channels=True,  # do positive and negative spikes separately
-#     saturation=10,           # clip values to this range
-#     merge=1)                 # merge pixels together to reduce size
+datafile = 'dataset/retinaTest95.events'
 
-# original from Terry's notebook
 times, images, targets = davis_tracking.load_data(
-    'dataset/retinaTest95.events',
+    datafile,
     dt=0.1,                  # time step between images
-    decay_time=0.1,          # low pass filter time constant
+    decay_time=0.01,         # low pass filter time constant
     separate_channels=True,  # do positive and negative spikes separately
     saturation=10,           # clip values to this range
-    merge=5)                 # merge pixels together to reduce size
+    merge=10)                # merge pixels together to reduce size
 
 if 0:
     N = 5
@@ -55,21 +48,20 @@ targets = targets[:, :2]
 input_shape = (2, 18, 24)
 dimensions = input_shape[0]*input_shape[1]*input_shape[2]
 
-max_rate = 100
+max_rate = 500
 amp = 1 / max_rate
 
-# datafile = os.path.expanduser('~/data/davis/davis240c-5sec-handmove.aedat')
-datafile = 'dataset/retinaTest95.events'
-
 with nengo.Network() as net:
+
+    inp = nengo.Node([0]*dimensions)
+
     net.config[nengo.Ensemble].max_rates = nengo.dists.Choice([max_rate])
     net.config[nengo.Ensemble].intercepts = nengo.dists.Choice([0])
     net.config[nengo.Connection].synapse = None
 
-    # inp = nengo.Node([0]*dimensions)
-    inp = DVSFileChipNode(filename=datafile, pool=(10, 10))
-
-    convnet = davis_tracking.ConvNet(nengo.Network(label='convnet'))
+    convnet = davis_tracking.ConvNet(
+        net=nengo.Network(label='convnet'),
+        max_rate=max_rate)
     convnet.input = inp
 
     # config after convnet to override default values
@@ -94,6 +86,7 @@ with nengo.Network() as net:
 
     p_out = nengo.Probe(out)
 
+
 print([ens.n_neurons for ens in net.all_ensembles])
 
 
@@ -103,11 +96,13 @@ targets_train = targets[::2]
 targets_test = targets[1::2]
 
 minibatch_size = 200
-n_epochs = 5
-# n_epochs = 200
+# n_epochs = 5
+n_epochs = 100
 # n_epochs = 400
 learning_rate = 1e-4
 
+loadfile = None
+# loadfile = 'loihi_splitnet.params'
 
 N = len(inputs_train)
 n_steps = int(np.ceil(N/minibatch_size))
@@ -117,31 +112,56 @@ N = len(inputs_test)
 n_steps = int(np.ceil(N/minibatch_size))
 dl_test_data = {inp: np.resize(inputs_test, (minibatch_size, n_steps, dimensions)),
                 p_out: np.resize(targets_test, (minibatch_size, n_steps, 2))}
-# with nengo_dl.Simulator(net, minibatch_size=minibatch_size) as sim:
-#     # loss_pre = sim.loss(dl_test_data)
-#     # print('loss pre:', loss_pre)
+with nengo_dl.Simulator(net, minibatch_size=minibatch_size) as sim:
 
-#     # sim.train(dl_train_data, tf.train.RMSPropOptimizer(learning_rate=learning_rate),
-#     #       n_epochs=n_epochs)
+    if loadfile and os.path.exists(loadfile):
+        sim.load_params(loadfile)
+        sim.freeze_params(net)
+    else:
+        loss_pre = sim.loss(dl_test_data)
+        print('loss pre:', loss_pre)
 
-#     # loss_post = sim.loss(dl_test_data)
-#     # print('loss post:', loss_post)
+        sim.train(dl_train_data, tf.train.RMSPropOptimizer(learning_rate=learning_rate),
+              n_epochs=n_epochs)
 
-#     # sim.run_steps(n_steps, data=dl_test_data)
+        loss_post = sim.loss(dl_test_data)
+        print('loss post:', loss_post)
 
-#     # store trained parameters back into the network
-#     sim.freeze_params(net)
+        sim.run_steps(n_steps, data=dl_test_data)
 
-# data = sim.data[p_out].reshape(-1,2)[:len(targets_test)]
-# if 0:
-#     plt.figure()
-#     plt.plot(times[1::2], data*10)
-#     plt.plot(times[1::2], targets_test*10)
-#     plt.show()
+        # store trained parameters back into the network
+        sim.freeze_params(net)
+        # if loadfile:
+            # sim.save_params(loadfile)
 
-# rmse = np.sqrt(np.mean((data-targets_test)**2, axis=0))*10
-# print(rmse)
+        data = sim.data[p_out].reshape(-1,2)[:len(targets_test)]
+        if 0:
+            plt.figure()
+            plt.plot(times[1::2], data*10)
+            plt.plot(times[1::2], targets_test*10)
+            plt.show()
+
+        rmse = np.sqrt(np.mean((data-targets_test)**2, axis=0))*10
+        print(rmse)
+
+
+t_start = times[0]
+with net:
+    inp2 = DVSFileChipNode(filename=datafile, t_start=t_start, pool=(10, 10))
+
+    for conn in convnet.net.connections[:]:
+        if conn.pre_obj is inp:
+            convnet.net.connections.remove(conn)
+            nengo.Connection(inp2[conn.pre_slice], conn.post,
+                             transform=conn.transform,
+            )
+
+    net.nodes.remove(inp)
 
 
 with nengo_loihi.Simulator(net) as sim:
-    sim.run(1.0)
+    sim.run(1.5)
+
+plt.plot(times, targets)
+plt.plot(sim.trange() + t_start, sim.data[p_out])
+plt.show()
